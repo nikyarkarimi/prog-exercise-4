@@ -5,15 +5,25 @@ import com.j256.ormlite.dao.Dao;
 import java.util.List;
 
 public class WatchlistRepository {
+    // Singleton instance
+    private static WatchlistRepository instance;    // adding static instance variable
+    private Dao<WatchlistMovieEntity, Long> dao;
 
-    Dao<WatchlistMovieEntity, Long> dao;
-
-    public WatchlistRepository() throws DataBaseException {
+    // private constructor stopping initialization from outside
+    private WatchlistRepository() throws DataBaseException {
         try {
             this.dao = DatabaseManager.getInstance().getWatchlistDao();
         } catch (Exception e) {
             throw new DataBaseException(e.getMessage());
         }
+    }
+
+    // public method for calling the one instance
+    public static synchronized WatchlistRepository getInstance() throws DataBaseException {
+        if (instance == null) {
+            instance = new WatchlistRepository();
+        }
+        return instance;
     }
 
     public List<WatchlistMovieEntity> getWatchlist() throws DataBaseException {
@@ -24,9 +34,10 @@ public class WatchlistRepository {
             throw new DataBaseException("Error while reading watchlist");
         }
     }
+
     public int addToWatchlist(WatchlistMovieEntity movie) throws DataBaseException {
         try {
-            // only add movie if it does not exist yet
+            // add only if movie not existing
             long count = dao.queryBuilder().where().eq("apiId", movie.getApiId()).countOf();
             if (count == 0) {
                 return dao.create(movie);
