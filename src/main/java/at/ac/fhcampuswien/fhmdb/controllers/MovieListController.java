@@ -9,6 +9,7 @@ import at.ac.fhcampuswien.fhmdb.models.Movie;
 import at.ac.fhcampuswien.fhmdb.models.AscendingSort;
 import at.ac.fhcampuswien.fhmdb.models.DescendingSort;
 import at.ac.fhcampuswien.fhmdb.controllers.MovieListContext;
+import at.ac.fhcampuswien.fhmdb.controllers.Observer;
 import at.ac.fhcampuswien.fhmdb.ui.MovieCell;
 import at.ac.fhcampuswien.fhmdb.ui.UserDialog;
 import com.jfoenix.controls.JFXButton;
@@ -19,6 +20,7 @@ import javafx.collections.ObservableList;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
+import javafx.scene.control.Alert;
 import javafx.scene.control.TextField;
 
 import java.net.URL;
@@ -26,7 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.ResourceBundle;
 
-public class MovieListController implements Initializable {
+public class MovieListController implements Initializable, Observer {
     @FXML
     public JFXButton searchBtn;
 
@@ -52,13 +54,11 @@ public class MovieListController implements Initializable {
 
     protected ObservableList<Movie> observableMovies = FXCollections.observableArrayList();
 
-    // sorted state wurde mit MovieListContext ersetzt
     private MovieListContext movieListContext;
 
     private final ClickEventHandler onAddToWatchlistClicked = (clickedItem) -> {
         if (clickedItem instanceof Movie movie) {
-            WatchlistMovieEntity watchlistMovieEntity = new WatchlistMovieEntity(
-                    movie.getId());
+            WatchlistMovieEntity watchlistMovieEntity = new WatchlistMovieEntity(movie.getId());
             try {
                 WatchlistRepository repository = WatchlistRepository.getInstance();
                 repository.addToWatchlist(watchlistMovieEntity);
@@ -74,6 +74,14 @@ public class MovieListController implements Initializable {
     public void initialize(URL url, ResourceBundle resourceBundle) {
         initializeState();
         initializeLayout();
+
+        // Register as an observer
+        try {
+            WatchlistRepository.getInstance().addObserver(this);
+        } catch (DataBaseException e) {
+            showAlert("Database Error", "Could not register observer");
+            e.printStackTrace();
+        }
     }
 
     public void initializeState() {
@@ -81,7 +89,7 @@ public class MovieListController implements Initializable {
         try {
             result = MovieAPI.getAllMovies();
             writeCache(result);
-        } catch (MovieApiException e){
+        } catch (MovieApiException e) {
             UserDialog dialog = new UserDialog("MovieAPI Error", "Could not load movies from api. Get movies from db cache instead");
             dialog.show();
             result = readCache();
@@ -89,7 +97,6 @@ public class MovieListController implements Initializable {
 
         setMovies(result);
         setMovieList(result);
-        // MovieListContext initialisiseren mit ASCENDING ZUSTAND
         movieListContext = new MovieListContext(new AscendingSort());
     }
 
@@ -106,11 +113,9 @@ public class MovieListController implements Initializable {
 
     private void writeCache(List<Movie> movies) {
         try {
-            // cache movies in db
             MovieRepository movieRepository = MovieRepository.getInstance();
             movieRepository.removeAll();
             movieRepository.addAllMovies(movies);
-
         } catch (DataBaseException e) {
             UserDialog dialog = new UserDialog("DB Error", "Could not write movies to DB");
             dialog.show();
@@ -118,36 +123,30 @@ public class MovieListController implements Initializable {
     }
 
     public void initializeLayout() {
-        movieListView.setItems(observableMovies);   // set the items of the listview to the observable list
-        movieListView.setCellFactory(movieListView -> new MovieCell(onAddToWatchlistClicked)); // apply custom cells to the listview
+        movieListView.setItems(observableMovies);
+        movieListView.setCellFactory(movieListView -> new MovieCell(onAddToWatchlistClicked));
 
-        // genre combobox
-        Object[] genres = Genre.values();   // get all genres
-        genreComboBox.getItems().add("No filter");  // add "no filter" to the combobox
-        genreComboBox.getItems().addAll(genres);    // add all genres to the combobox
+        Object[] genres = Genre.values();
+        genreComboBox.getItems().add("No filter");
+        genreComboBox.getItems().addAll(genres);
         genreComboBox.setPromptText("Filter by Genre");
 
-        // year combobox
-        releaseYearComboBox.getItems().add("No filter");  // add "no filter" to the combobox
-        // fill array with numbers from 1900 to 2023
+        releaseYearComboBox.getItems().add("No filter");
         Integer[] years = new Integer[124];
         for (int i = 0; i < years.length; i++) {
             years[i] = 1900 + i;
         }
-        releaseYearComboBox.getItems().addAll(years);    // add all years to the combobox
+        releaseYearComboBox.getItems().addAll(years);
         releaseYearComboBox.setPromptText("Filter by Release Year");
 
-        // rating combobox
-        ratingFromComboBox.getItems().add("No filter");  // add "no filter" to the combobox
-        // fill array with numbers from 0 to 10
+        ratingFromComboBox.getItems().add("No filter");
         Integer[] ratings = new Integer[11];
         for (int i = 0; i < ratings.length; i++) {
             ratings[i] = i;
         }
-        ratingFromComboBox.getItems().addAll(ratings);    // add all ratings to the combobox
+        ratingFromComboBox.getItems().addAll(ratings);
         ratingFromComboBox.setPromptText("Filter by Rating");
     }
-
 
     public void setMovies(List<Movie> movies) {
         allMovies = movies;
@@ -157,6 +156,7 @@ public class MovieListController implements Initializable {
         observableMovies.clear();
         observableMovies.addAll(movies);
     }
+
     public void sortBtnClicked(ActionEvent actionEvent) {
         sortMovies();
     }
@@ -170,28 +170,27 @@ public class MovieListController implements Initializable {
         sortAndDisplayMovies();
     }
 
-    // Sortieren der Filme gemäß aktuellem Zustand und anzeigen
     private void sortAndDisplayMovies() {
         movieListContext.sortMovies(observableMovies);
     }
 
-    public List<Movie> filterByQuery(List<Movie> movies, String query){
-        if(query == null || query.isEmpty()) return movies;
+    public List<Movie> filterByQuery(List<Movie> movies, String query) {
+        if (query == null || query.isEmpty()) return movies;
 
-        if(movies == null) {
+        if (movies == null) {
             throw new IllegalArgumentException("movies must not be null");
         }
 
         return movies.stream().filter(movie ->
                         movie.getTitle().toLowerCase().contains(query.toLowerCase()) ||
-                                movie.getDescription().toLowerCase().contains(query.toLowerCase()))
+                        movie.getDescription().toLowerCase().contains(query.toLowerCase()))
                 .toList();
     }
 
-    public List<Movie> filterByGenre(List<Movie> movies, Genre genre){
-        if(genre == null) return movies;
+    public List<Movie> filterByGenre(List<Movie> movies, Genre genre) {
+        if (genre == null) return movies;
 
-        if(movies == null) {
+        if (movies == null) {
             throw new IllegalArgumentException("movies must not be null");
         }
 
@@ -220,7 +219,7 @@ public class MovieListController implements Initializable {
         String genreValue = validateComboboxValue(genreComboBox.getSelectionModel().getSelectedItem());
 
         Genre genre = null;
-        if(genreValue != null) {
+        if (genreValue != null) {
             genre = Genre.valueOf(genreValue);
         }
 
@@ -228,7 +227,6 @@ public class MovieListController implements Initializable {
 
         setMovies(movies);
         setMovieList(movies);
-        //applyAllFilters(searchQuery, genre);
     }
 
     public String validateComboboxValue(Object value) {
@@ -247,5 +245,17 @@ public class MovieListController implements Initializable {
             dialog.show();
             return new ArrayList<>();
         }
+    }
+
+    @Override
+    public void update(String message) {
+        showAlert("Watchlist Notification", message);
+    }
+
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setContentText(message);
+        alert.showAndWait();
     }
 }
